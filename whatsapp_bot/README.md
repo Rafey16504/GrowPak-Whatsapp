@@ -73,12 +73,13 @@ Run the Flask server using the following command:
 python server.py    (Running on http://127.0.0.1:3000)
 ```
 
-## 6. Run the ngrok server
+## 6. Run ngrok(local)/Cloudflare tunnel(semi-permanent)
 
 Run the ngrok server using the following command:
 
 ```bash
 ngrok http 3000    (https://21ef59c7a1e1.ngrok-free.app)
+cloudflared tunnel --url http://localhost:3000
 ```
 
 ## 7. Configure Webhook in meta dashboard
