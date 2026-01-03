@@ -1,0 +1,4 @@
+whatsapp_bot/.env
+stt-finetune/models
+./stt-finetune/training/data
+./stt-finetune/training/audio_cache
