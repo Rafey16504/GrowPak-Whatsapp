@@ -1,6 +1,6 @@
 """
 GrowPak Agriculture Pipeline
-STT  : Fine-tuned Whisper (local, loaded once at startup)
+STT  : Fine-tuned Whisper via Hugging Face Inference API (no local model needed)
 LLM  : Groq API  (query enhancement + response generation)
 RAG  : ChromaDB  (persistent vector store)
 TTS  : Google Cloud TTS (Urdu WaveNet)
@@ -10,25 +10,15 @@ import os
 import json
 import time
 import base64
-import subprocess
 import warnings
-import asyncio
 import tempfile
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional
 
-import numpy as np
 import requests
-import torch
 import chromadb
 from sentence_transformers import SentenceTransformer
-from transformers import (
-    WhisperProcessor,
-    WhisperForConditionalGeneration,
-    WhisperFeatureExtractor,
-    WhisperTokenizer,
-)
 from groq import Groq
 
 warnings.filterwarnings("ignore")
@@ -39,17 +29,16 @@ warnings.filterwarnings("ignore")
 CHROMA_DB_PATH   = os.getenv("CHROMA_DB_PATH",   "./agriculture_chroma_db")
 COLLECTION_NAME  = os.getenv("COLLECTION_NAME",  "agriculture_kb")
 EMBEDDING_MODEL  = os.getenv("EMBEDDING_MODEL",  "all-MiniLM-L6-v2")
-WHISPER_MODEL_PATH = os.getenv("WHISPER_MODEL_PATH", "./whisper_urdu_finetuned_v2")
-WHISPER_LANGUAGE   = os.getenv("WHISPER_LANGUAGE", None)   # None = auto-detect
-GROQ_API_KEY       = os.getenv("GROQ_API_KEY")
-GROQ_MODEL         = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")  # or gemma2-9b-it
+HF_TOKEN         = os.getenv("HF_TOKEN")
+HF_MODEL_ID      = os.getenv("HF_MODEL_ID", "YOUR_HF_USERNAME/whisper-urdu-growpak")
+WHISPER_LANGUAGE = os.getenv("WHISPER_LANGUAGE", "ur")
+GROQ_API_KEY     = os.getenv("GROQ_API_KEY")
+GROQ_MODEL       = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 GOOGLE_TTS_API_KEY = os.getenv("GOOGLE_TTS_API_KEY")
 SIMILARITY_THRESHOLD = float(os.getenv("SIMILARITY_THRESHOLD", "0.55"))
 
 AUDIO_OUT_DIR = "./audio_responses"
 os.makedirs(AUDIO_OUT_DIR, exist_ok=True)
-
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 # ─────────────────────────────────────────────────────────────
 # GLOBAL SINGLETONS  (loaded once when module is imported)
@@ -74,33 +63,10 @@ print("  Connecting to Groq...")
 _groq_client = Groq(api_key=GROQ_API_KEY)
 print(f"  ✅ Groq model: {GROQ_MODEL}")
 
-# Fine-tuned Whisper
-print(f"  Loading Whisper from {WHISPER_MODEL_PATH}...")
-
-def _load_whisper_processor(model_path: Path) -> WhisperProcessor:
-    if (model_path / "preprocessor_config.json").exists():
-        return WhisperProcessor.from_pretrained(str(model_path))
-    feature_extractor = WhisperFeatureExtractor(
-        feature_size=128, sampling_rate=16000, hop_length=160,
-        chunk_length=30, n_fft=400, padding_value=0.0,
-        do_normalize=True, return_attention_mask=False,
-    )
-    has_local_tokenizer = (
-        (model_path / "vocab.json").exists() and
-        (model_path / "merges.txt").exists()
-    )
-    tokenizer = (
-        WhisperTokenizer.from_pretrained(str(model_path))
-        if has_local_tokenizer
-        else WhisperTokenizer.from_pretrained("openai/whisper-large-v3")
-    )
-    return WhisperProcessor(feature_extractor=feature_extractor, tokenizer=tokenizer)
-
-_whisper_path     = Path(WHISPER_MODEL_PATH)
-_whisper_processor = _load_whisper_processor(_whisper_path)
-_whisper_model     = WhisperForConditionalGeneration.from_pretrained(str(_whisper_path))
-_whisper_model.to(DEVICE).eval()
-print(f"  ✅ Whisper loaded on {DEVICE}")
+# HF Inference API for Whisper — no local loading needed
+_hf_asr_url     = f"https://api-inference.huggingface.co/models/{HF_MODEL_ID}"
+_hf_headers     = {"Authorization": f"Bearer {HF_TOKEN}"}
+print(f"  ✅ Whisper via HF Inference API: {HF_MODEL_ID}")
 
 print("=" * 60)
 print("All models ready.")
@@ -108,58 +74,57 @@ print("=" * 60)
 
 
 # ─────────────────────────────────────────────────────────────
-# STT — Fine-tuned Whisper
+# STT — Fine-tuned Whisper via HF Inference API
 # ─────────────────────────────────────────────────────────────
 ALLOWED_AUDIO_EXTS = {".wav", ".mp3", ".m4a", ".ogg", ".flac", ".aac", ".wma", ".opus"}
 
-def _load_audio_ffmpeg(path: str, target_sr: int = 16000) -> np.ndarray:
-    cmd = ["ffmpeg", "-i", str(path), "-f", "f32le", "-ac", "1", "-ar", str(target_sr), "-"]
-    out = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
-    audio = np.frombuffer(out.stdout, np.float32)
-    if audio.size == 0:
-        raise RuntimeError(f"No audio decoded from {path}.")
-    return audio
-
-
 def transcribe_audio(audio_path: str) -> str:
     """
-    Transcribe an audio file with the fine-tuned Whisper model.
-    Handles long audio via chunking with overlap.
+    Transcribe audio using your fine-tuned Whisper model hosted on
+    Hugging Face Inference API. Handles cold starts with retry logic.
     Returns the transcribed text string.
     """
     ext = Path(audio_path).suffix.lower()
     if ext not in ALLOWED_AUDIO_EXTS:
         raise ValueError(f"Unsupported audio format: {ext}")
 
-    audio = _load_audio_ffmpeg(audio_path)
-
-    CHUNK_S  = 28
-    STRIDE_S = 2
-    SR       = 16000
-    chunk_samples  = CHUNK_S  * SR
-    stride_samples = STRIDE_S * SR
-
-    generate_kwargs = {"num_beams": 2, "task": "transcribe"}
+    params = {}
     if WHISPER_LANGUAGE:
-        generate_kwargs["language"] = WHISPER_LANGUAGE
+        params = {"language": WHISPER_LANGUAGE}
 
-    dtype = next(_whisper_model.parameters()).dtype
-    parts = []
-    start = 0
-    while start < len(audio):
-        chunk  = audio[start: start + chunk_samples]
-        inputs = _whisper_processor(chunk, sampling_rate=SR, return_tensors="pt")
-        features = inputs.input_features.to(device=DEVICE, dtype=dtype)
-        with torch.no_grad():
-            predicted_ids = _whisper_model.generate(features, **generate_kwargs)
-        part = _whisper_processor.tokenizer.decode(
-            predicted_ids[0], skip_special_tokens=True
-        ).strip()
-        if part:
-            parts.append(part)
-        start += chunk_samples - stride_samples
+    with open(audio_path, "rb") as f:
+        audio_bytes = f.read()
 
-    return " ".join(parts)
+    # Retry up to 3 times — HF cold starts return 503 for ~20s
+    for attempt in range(3):
+        response = requests.post(
+            _hf_asr_url,
+            headers=_hf_headers,
+            data=audio_bytes,
+            params=params,
+            timeout=60,
+        )
+
+        if response.status_code == 200:
+            result = response.json()
+            # HF ASR returns {"text": "..."} 
+            if isinstance(result, dict) and "text" in result:
+                return result["text"].strip()
+            # Fallback if shape differs
+            return str(result).strip()
+
+        elif response.status_code == 503:
+            # Model is loading (cold start) — wait and retry
+            wait = 20 if attempt == 0 else 10
+            print(f"[STT] HF model loading, waiting {wait}s... (attempt {attempt + 1}/3)")
+            time.sleep(wait)
+
+        else:
+            raise RuntimeError(
+                f"HF Inference API error {response.status_code}: {response.text}"
+            )
+
+    raise RuntimeError("HF Inference API failed after 3 attempts — model may still be loading.")
 
 
 # ─────────────────────────────────────────────────────────────

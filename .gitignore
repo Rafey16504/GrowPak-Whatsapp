@@ -6,3 +6,4 @@ stt-finetune/training/audio_cache
 stt-finetune/training/roman_asr_dataset_combined
 stt-finetune/training/urdu_asr_dataset_combined
 hosted/.env
+hosted/whisper_urdu_finetuned_v2
