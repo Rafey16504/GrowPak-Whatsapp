@@ -41,36 +41,47 @@ AUDIO_OUT_DIR = "./audio_responses"
 os.makedirs(AUDIO_OUT_DIR, exist_ok=True)
 
 # ─────────────────────────────────────────────────────────────
-# GLOBAL SINGLETONS  (loaded once when module is imported)
+# LAZY SINGLETONS — nothing loads until first request
 # ─────────────────────────────────────────────────────────────
-print("=" * 60)
-print("GrowPak Pipeline — Loading models...")
-print("=" * 60)
+_chroma_client   = None
+_collection      = None
+_embedding_model = None
+_groq_client     = None
+_hf_asr_url      = None
+_hf_headers      = None
 
-# ChromaDB
-print("  Loading ChromaDB...")
-_chroma_client = chromadb.PersistentClient(path=CHROMA_DB_PATH)
-_collection    = _chroma_client.get_collection(name=COLLECTION_NAME)
-print(f"  ✅ ChromaDB: {_collection.count()} documents")
+def _init():
+    """Initialise all singletons on first use."""
+    global _chroma_client, _collection, _embedding_model
+    global _groq_client, _hf_asr_url, _hf_headers
 
-# Embedding model
-print("  Loading embedding model...")
-_embedding_model = SentenceTransformer(EMBEDDING_MODEL)
-print(f"  ✅ Embedding model: {EMBEDDING_MODEL}")
+    if _groq_client is not None:
+        return  # already initialised
 
-# Groq client
-print("  Connecting to Groq...")
-_groq_client = Groq(api_key=GROQ_API_KEY)
-print(f"  ✅ Groq model: {GROQ_MODEL}")
+    print("=" * 60)
+    print("GrowPak Pipeline — Loading models...")
+    print("=" * 60)
 
-# HF Inference API for Whisper — no local loading needed
-_hf_asr_url     = f"https://api-inference.huggingface.co/models/{HF_MODEL_ID}"
-_hf_headers     = {"Authorization": f"Bearer {HF_TOKEN}"}
-print(f"  ✅ Whisper via HF Inference API: {HF_MODEL_ID}")
+    print("  Loading ChromaDB...")
+    _chroma_client = chromadb.PersistentClient(path=CHROMA_DB_PATH)
+    _collection    = _chroma_client.get_collection(name=COLLECTION_NAME)
+    print(f"  ✅ ChromaDB: {_collection.count()} documents")
 
-print("=" * 60)
-print("All models ready.")
-print("=" * 60)
+    print("  Loading embedding model...")
+    _embedding_model = SentenceTransformer(EMBEDDING_MODEL)
+    print(f"  ✅ Embedding model: {EMBEDDING_MODEL}")
+
+    print("  Connecting to Groq...")
+    _groq_client = Groq(api_key=GROQ_API_KEY)
+    print(f"  ✅ Groq model: {GROQ_MODEL}")
+
+    _hf_asr_url = f"https://api-inference.huggingface.co/models/{HF_MODEL_ID}"
+    _hf_headers = {"Authorization": f"Bearer {HF_TOKEN}"}
+    print(f"  ✅ Whisper via HF Inference API: {HF_MODEL_ID}")
+
+    print("=" * 60)
+    print("All models ready.")
+    print("=" * 60)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -84,6 +95,7 @@ def transcribe_audio(audio_path: str) -> str:
     Hugging Face Inference API. Handles cold starts with retry logic.
     Returns the transcribed text string.
     """
+    _init()
     ext = Path(audio_path).suffix.lower()
     if ext not in ALLOWED_AUDIO_EXTS:
         raise ValueError(f"Unsupported audio format: {ext}")
@@ -132,6 +144,7 @@ def transcribe_audio(audio_path: str) -> str:
 # ─────────────────────────────────────────────────────────────
 def _call_groq(prompt: str, system_prompt: str = "", temperature: float = 0.1) -> str:
     """Call Groq API with a prompt and optional system message."""
+    _init()
     messages = []
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
@@ -235,6 +248,7 @@ def rag_search(enhanced_query: Dict, top_k: int = 5) -> List[Dict]:
     Embed the enhanced English query + keywords and search ChromaDB.
     Applies crop/topic metadata filter when available; falls back to no filter.
     """
+    _init()
     search_text = enhanced_query.get("enhanced_query", "")
     if enhanced_query.get("keywords"):
         search_text += " " + " ".join(enhanced_query["keywords"])
