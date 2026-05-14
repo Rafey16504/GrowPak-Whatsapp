@@ -114,7 +114,7 @@ def handle_voice_message(to: str, audio_obj: dict):
 
     # 1. Get media download URL from Meta
     media_url_resp = requests.get(
-        f"https://graph.facebook.com/v20.0/{media_id}",
+        f"https://graph.facebook.com/v25.0/{media_id}",
         headers={"Authorization": f"Bearer {WHATSAPP_TOKEN}"},
     )
     if media_url_resp.status_code != 200:
@@ -168,7 +168,7 @@ def _wa_headers() -> dict:
     return {"Authorization": f"Bearer {WHATSAPP_TOKEN}", "Content-Type": "application/json"}
 
 def _wa_url() -> str:
-    return f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages"
+    return f"https://graph.facebook.com/v25.0/{PHONE_NUMBER_ID}/messages"
 
 
 def send_whatsapp_message(to: str, message: str):
@@ -183,7 +183,7 @@ def send_whatsapp_message(to: str, message: str):
 def send_whatsapp_audio(to: str, audio_path: str):
     """Upload the MP3 to Meta and send it as an audio message."""
     # Step 1: Upload media
-    upload_url = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/media"
+    upload_url = f"https://graph.facebook.com/v25.0/{PHONE_NUMBER_ID}/media"
     with open(audio_path, "rb") as f:
         upload_resp = requests.post(
             upload_url,
