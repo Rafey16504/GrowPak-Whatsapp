@@ -4,7 +4,7 @@ import numpy as np
 # ----------------------------------------------------
 # Load your excel file
 # ----------------------------------------------------
-df = pd.read_excel("model_accuracy_v1.1(roman).xlsx")
+df = pd.read_excel("model_accuracy_v0(roman).xlsx")
 
 # ----------------------------------------------------
 # Cleaning function

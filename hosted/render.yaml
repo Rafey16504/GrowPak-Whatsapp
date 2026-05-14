@@ -1,0 +1,36 @@
+services:
+  - type: web
+    name: growpak-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn server:app --bind 0.0.0.0:$PORT --timeout 120 --workers 1
+    envVars:
+      - key: VERIFY_TOKEN
+        sync: false
+      - key: WHATSAPP_TOKEN
+        sync: false
+      - key: PHONE_NUMBER_ID
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        value: llama-3.3-70b-versatile
+      - key: GOOGLE_TTS_API_KEY
+        sync: false
+      - key: OPENWEATHER_API_KEY
+        sync: false
+      - key: WHISPER_MODEL_PATH
+        value: ./whisper_urdu_finetuned_v2
+      - key: CHROMA_DB_PATH
+        value: ./agriculture_chroma_db
+      - key: COLLECTION_NAME
+        value: agriculture_kb
+      - key: WHISPER_LANGUAGE
+        value: ur
+      - key: SIMILARITY_THRESHOLD
+        value: "0.55"
+    disk:
+      name: growpak-data
+      mountPath: /opt/render/project/src
+      sizeGB: 5

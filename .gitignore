@@ -1,4 +1,8 @@
 whatsapp_bot/.env
 stt-finetune/models
-./stt-finetune/training/data
-./stt-finetune/training/audio_cache
+rag/audio_responses/
+stt-finetune/training/asr_dataset
+stt-finetune/training/audio_cache
+stt-finetune/training/roman_asr_dataset_combined
+stt-finetune/training/urdu_asr_dataset_combined
+hosted/.env

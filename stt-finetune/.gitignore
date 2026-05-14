@@ -1,3 +1,5 @@
 ./models
-./training/data
+./training/asr_dataset
 ./training/audio_cache
+./training/roman_asr_dataset_combined
+./training/urdu_asr_dataset_combined
