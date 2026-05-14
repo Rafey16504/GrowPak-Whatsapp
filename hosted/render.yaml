@@ -20,17 +20,19 @@ services:
         sync: false
       - key: OPENWEATHER_API_KEY
         sync: false
-      - key: WHISPER_MODEL_PATH
-        value: ./whisper_urdu_finetuned_v2
+      - key: HF_TOKEN
+        sync: false
+      - key: HF_MODEL_ID
+        sync: false
+      - key: WHISPER_LANGUAGE
+        value: ur
       - key: CHROMA_DB_PATH
         value: ./agriculture_chroma_db
       - key: COLLECTION_NAME
         value: agriculture_kb
-      - key: WHISPER_LANGUAGE
-        value: ur
       - key: SIMILARITY_THRESHOLD
         value: "0.55"
     disk:
-      name: growpak-data
-      mountPath: /opt/render/project/src
-      sizeGB: 5
+      name: growpak-chroma
+      mountPath: /opt/render/project/src/agriculture_chroma_db
+      sizeGB: 1
