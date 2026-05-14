@@ -36,6 +36,11 @@ def get_pipeline():
 # ═══════════════════════════════════════════════════════════
 # 1. WEBHOOK VERIFICATION
 # ═══════════════════════════════════════════════════════════
+@app.get("/ping")
+def ping():
+    return "pong", 200
+
+
 @app.get("/webhook")
 def verify_webhook():
     mode      = request.args.get("hub.mode")
@@ -61,7 +66,9 @@ def receive_message():
             return "OK", 200
 
         msg    = value["messages"][0]
-        sender = msg["from"]
+        sender = msg.get("from")
+        if not sender:
+            return "OK", 200
 
         # ── List menu option selected ───────────────────────
         if msg["type"] == "interactive" and "list_reply" in msg["interactive"]:
