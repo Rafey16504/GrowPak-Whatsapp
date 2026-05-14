@@ -15,8 +15,22 @@ WHATSAPP_TOKEN   = os.getenv("WHATSAPP_TOKEN")
 PHONE_NUMBER_ID  = os.getenv("PHONE_NUMBER_ID")
 OPENWEATHER_KEY  = os.getenv("OPENWEATHER_API_KEY")
 
-# ── Import pipeline (loads all models at startup) ──────────
-from pipeline import run_pipeline
+# ── Lazy pipeline loader ────────────────────────────────────
+# Pipeline is imported on first use, not at startup.
+# This lets the server bind to a port immediately so Render
+# and the Meta webhook verifier can reach it right away.
+_pipeline_loaded = False
+_run_pipeline = None
+
+def get_pipeline():
+    global _pipeline_loaded, _run_pipeline
+    if not _pipeline_loaded:
+        print("[Pipeline] Loading pipeline for the first time...")
+        from pipeline import run_pipeline
+        _run_pipeline = run_pipeline
+        _pipeline_loaded = True
+        print("[Pipeline] Ready.")
+    return _run_pipeline
 
 
 # ═══════════════════════════════════════════════════════════
@@ -115,6 +129,7 @@ def handle_voice_message(to: str, audio_obj: dict):
     # 3. Run pipeline
     try:
         send_whatsapp_message(to, "⏳ Processing your question...")
+        run_pipeline = get_pipeline()
         result = run_pipeline(audio_path=tmp_path)
         final_answer  = result.get("final_answer", "")
         audio_out     = result.get("audio_response")
